@@ -1,0 +1,731 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Two RNNs, One Vector</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #F5F7FA;
+  --surface: #FFFFFF;
+  --surface-2: #EDF1F6;
+  --ink: #1B2230;
+  --muted: #5B6577;
+  --rule: #DCE2EA;
+  --enc: #0E7C86;
+  --enc-soft: #D8EEF0;
+  --dec: #6B4FBB;
+  --dec-soft: #E7E1F6;
+  --ctx: #C9920E;
+  --ctx-soft: #F8EDCF;
+  --good: #2E7D4F;
+  --bad: #B83A3A;
+  --bad-soft: #F7E0E0;
+  --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --body: "IBM Plex Sans", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #10141B;
+    --surface: #171C25;
+    --surface-2: #1E2430;
+    --ink: #E6EAF0;
+    --muted: #9AA4B5;
+    --rule: #2B3342;
+    --enc: #3FB8C2;
+    --enc-soft: #15343A;
+    --dec: #A08BF0;
+    --dec-soft: #2A2445;
+    --ctx: #E8B84A;
+    --ctx-soft: #3A3018;
+    --good: #5CC08A;
+    --bad: #F07A7A;
+    --bad-soft: #3D2024;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #10141B;
+  --surface: #171C25;
+  --surface-2: #1E2430;
+  --ink: #E6EAF0;
+  --muted: #9AA4B5;
+  --rule: #2B3342;
+  --enc: #3FB8C2;
+  --enc-soft: #15343A;
+  --dec: #A08BF0;
+  --dec-soft: #2A2445;
+  --ctx: #E8B84A;
+  --ctx-soft: #3A3018;
+  --good: #5CC08A;
+  --bad: #F07A7A;
+  --bad-soft: #3D2024;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.6 var(--body);
+  padding: 0 16px;
+}
+.wrap { max-width: 1040px; margin: 0 auto; padding-block: 48px 80px; display: flex; flex-direction: column; gap: 64px; }
+.prose { max-width: 680px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; line-height: 1.12; }
+h1 { font-size: clamp(2.2rem, 5vw, 3.4rem); font-weight: 700; letter-spacing: -0.02em; }
+h2 { font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 700; letter-spacing: -0.01em; }
+h3 { font-size: 1.1rem; font-weight: 500; }
+p { margin: 0; }
+.stack { display: flex; flex-direction: column; gap: 14px; }
+.eyebrow { font: 500 12px/1.2 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.lede { font-size: 1.15rem; color: var(--muted); }
+code, .mono { font-family: var(--mono); font-size: 0.92em; }
+code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+.enc-t { color: var(--enc); font-weight: 600; }
+.dec-t { color: var(--dec); font-weight: 600; }
+.ctx-t { color: var(--ctx); font-weight: 600; }
+
+/* hero */
+.hero { display: grid; gap: 28px; }
+.hero-map { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-family: var(--mono); font-size: 15px; }
+.chip { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 6px; border: 1.5px solid currentColor; font-family: var(--mono); font-size: 14px; line-height: 1.3; white-space: nowrap; }
+.chip.enc { color: var(--enc); background: var(--enc-soft); }
+.chip.dec { color: var(--dec); background: var(--dec-soft); }
+.chip.ctx { color: var(--ctx); background: var(--ctx-soft); }
+.arrow { color: var(--muted); }
+.prereq { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.prereq div { border-top: 2px solid var(--rule); padding-top: 10px; font-size: 14px; color: var(--muted); }
+.prereq b { display: block; color: var(--ink); font-weight: 600; margin-bottom: 2px; }
+
+/* panels */
+.panel { background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; padding: 22px; display: flex; flex-direction: column; gap: 18px; }
+.scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+button {
+  font: 500 14px/1 var(--body); color: var(--ink); background: var(--surface-2);
+  border: 1px solid var(--rule); border-radius: 8px; padding: 10px 14px; cursor: pointer;
+}
+button:hover { border-color: var(--muted); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--dec); outline-offset: 2px; }
+button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+button.primary { background: var(--dec); color: #fff; border-color: var(--dec); }
+button:disabled { opacity: 0.4; cursor: default; }
+.stepcount { font: 500 13px var(--mono); color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
+
+/* machine */
+.machine { min-width: 640px; display: flex; flex-direction: column; gap: 14px; }
+.lane-label { font: 500 12px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; }
+.lane { display: grid; gap: 14px; align-items: end; }
+.col { display: flex; flex-direction: column; align-items: center; gap: 8px; transition: opacity .3s; position: relative; }
+.col.future { opacity: 0.18; }
+.col.active .box { box-shadow: 0 0 0 3px var(--active-ring); }
+.box { width: 100%; max-width: 110px; text-align: center; padding: 10px 0; border-radius: 8px; font: 500 13px var(--mono); color: #fff; }
+.enc-lane .box { background: var(--enc); --active-ring: var(--enc-soft); }
+.dec-lane .box { background: var(--dec); --active-ring: var(--dec-soft); }
+.enc-lane .col.active .box { box-shadow: 0 0 0 4px var(--enc-soft), 0 0 0 5px var(--enc); }
+.dec-lane .col.active .box { box-shadow: 0 0 0 4px var(--dec-soft), 0 0 0 5px var(--dec); }
+.col:not(:last-child)::after {
+  content: "→"; position: absolute; right: -12px; top: calc(50% - 0px); color: var(--muted); font-size: 14px;
+}
+.enc-lane .col::after { top: auto; bottom: 50px; }
+.dec-lane .col::after { top: auto; bottom: 72px; }
+.strip { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; width: 100%; max-width: 110px; }
+.cell { aspect-ratio: 1; border-radius: 2px; background: var(--surface-2); max-width: 100%; }
+.hlabel { font: 12px var(--mono); color: var(--muted); }
+.out { min-height: 92px; width: 100%; max-width: 120px; display: flex; flex-direction: column; justify-content: flex-end; gap: 3px; }
+.prob { display: grid; grid-template-columns: 52px 1fr; align-items: center; gap: 4px; font: 11px var(--mono); color: var(--muted); }
+.prob .bar { height: 7px; border-radius: 2px; background: var(--dec); opacity: .35; }
+.prob.win { color: var(--ink); font-weight: 500; }
+.prob.win .bar { opacity: 1; }
+.feedback { font: 11px var(--mono); color: var(--dec); text-align: center; height: 14px; }
+.ctx-row { display: flex; align-items: center; gap: 14px; padding: 10px 14px; border-radius: 10px; border: 1.5px dashed var(--rule); transition: all .3s; }
+.ctx-row.lit { border-color: var(--ctx); background: var(--ctx-soft); }
+.ctx-row .strip { max-width: 180px; gap: 3px; }
+.ctx-row .cell { outline: 1.5px solid transparent; }
+.ctx-row.lit .cell { outline-color: var(--ctx); }
+.ctx-text { font-size: 14px; color: var(--muted); }
+.ctx-text b { color: var(--ctx); }
+.caption { min-height: 76px; border-left: 3px solid var(--rule); padding: 4px 0 4px 14px; font-size: 15px; transition: border-color .3s; }
+.caption.enc { border-color: var(--enc); }
+.caption.ctx { border-color: var(--ctx); }
+.caption.dec { border-color: var(--dec); }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+
+/* teacher forcing */
+.tf-grid { min-width: 560px; display: grid; grid-template-columns: 120px repeat(5, 1fr); gap: 8px 10px; align-items: center; }
+.tf-grid .rowlabel { font: 500 12px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.tok { text-align: center; padding: 7px 4px; border-radius: 6px; font: 500 13px var(--mono); border: 1.5px solid var(--rule); background: var(--surface-2); }
+.tok.truth { border-color: var(--good); }
+.tok.own { border-color: var(--dec); background: var(--dec-soft); color: var(--dec); }
+.tok.wrong { border-color: var(--bad); background: var(--bad-soft); color: var(--bad); }
+.tok.ok { border-color: var(--good); color: var(--good); }
+.tok.ghost { opacity: .35; border-style: dashed; }
+.tok.target { background: transparent; color: var(--muted); border-style: dotted; }
+.tf-note { font-size: 15px; }
+.tf-out { font: 500 15px var(--mono); }
+
+/* bottleneck */
+.bn { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+@media (max-width: 760px) { .bn { grid-template-columns: 1fr; } }
+.funnel { display: flex; flex-direction: column; gap: 14px; }
+.dots { display: flex; flex-wrap: wrap; gap: 4px; min-height: 60px; align-content: flex-start; }
+.dot { width: 14px; height: 14px; border-radius: 3px; background: var(--enc); }
+.squeeze { display: flex; align-items: center; gap: 12px; font-size: 14px; color: var(--muted); }
+.squeeze .strip { max-width: 160px; }
+.squeeze .cell { background: var(--ctx); }
+input[type="range"] { width: 100%; accent-color: var(--enc); }
+.range-labels { display: flex; justify-content: space-between; font: 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.bigstat { font: 700 2.4rem/1 var(--display); font-variant-numeric: tabular-nums; }
+.bigstat small { font: 500 14px var(--body); color: var(--muted); margin-left: 6px; }
+svg text { font-family: var(--mono); }
+.fine { font-size: 13px; color: var(--muted); }
+
+/* beam */
+.beam-wrap { min-width: 560px; }
+.beam-notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.beam-notes div { font-size: 14px; }
+
+/* shapes */
+.shapes { width: 100%; min-width: 560px; border-collapse: collapse; font-size: 14px; }
+.shapes th, .shapes td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.shapes th { font: 500 12px var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.shapes td.mono { white-space: nowrap; font-variant-numeric: tabular-nums; }
+pre { margin: 0; background: var(--surface-2); border-radius: 10px; padding: 16px; overflow-x: auto; font: 13px/1.55 var(--mono); }
+pre .c { color: var(--muted); }
+pre .k { color: var(--dec); }
+pre .e { color: var(--enc); }
+
+/* attention preview */
+.compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
+.compare figure { margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.compare figcaption { font-size: 14px; color: var(--muted); }
+
+.terms { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px 28px; }
+.terms dt { font-family: var(--mono); font-weight: 500; font-size: 14px; }
+.terms dd { margin: 2px 0 0; font-size: 14px; color: var(--muted); }
+footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 18px; }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<main class="wrap">
+
+  <!-- HERO -->
+  <header class="hero">
+    <div class="stack prose">
+      <span class="eyebrow">Phase 5 · Lesson 09 · Sequence-to-Sequence</span>
+      <h1>Two RNNs, one vector</h1>
+      <p class="lede">A translator built from two recurrent networks. One reads the sentence and squeezes it into a single vector. The other unpacks that vector into a new sentence, one token at a time. The single vector is where it breaks, and that failure is the reason attention was invented.</p>
+    </div>
+    <div class="hero-map" aria-label="Overview: source tokens go into the encoder, become a context vector, and the decoder produces target tokens">
+      <span class="chip enc">le chat noir dort</span><span class="arrow">→</span>
+      <span class="chip enc">Encoder GRU</span><span class="arrow">→</span>
+      <span class="chip ctx">context vector</span><span class="arrow">→</span>
+      <span class="chip dec">Decoder GRU</span><span class="arrow">→</span>
+      <span class="chip dec">the black cat sleeps</span>
+    </div>
+    <div class="prereq">
+      <div><b>You already know</b>An RNN/GRU keeps a hidden state and updates it one step at a time with the same weights.</div>
+      <div><b>New here</b>Wiring two of them together so input and output can have different lengths and vocabularies.</div>
+      <div><b>Where it leads</b>Lesson 10 (attention) fixes the one-vector bottleneck you'll see below.</div>
+    </div>
+  </header>
+
+  <!-- 1. MACHINE -->
+  <section class="stack" id="machine">
+    <div class="stack prose">
+      <span class="eyebrow">The machine, step by step</span>
+      <h2>Watch a sentence go through</h2>
+      <p>Each small grid is a hidden state: 8 numbers (real models use 256–1024). Stronger color means a bigger value. Press <b>Next</b> to move one time step.</p>
+    </div>
+    <div class="panel">
+      <div class="controls">
+        <button id="m-prev" type="button">← Back</button>
+        <button id="m-next" type="button" class="primary">Next →</button>
+        <button id="m-play" type="button">Play</button>
+        <button id="m-reset" type="button">Reset</button>
+        <span class="stepcount" id="m-count">0 / 10</span>
+      </div>
+      <div class="scroll">
+        <div class="machine">
+          <div class="lane-label enc-t">Encoder · reads the source</div>
+          <div class="lane enc-lane" id="enc-lane" style="grid-template-columns: repeat(4, minmax(96px, 1fr));"></div>
+          <div class="ctx-row" id="ctx-row">
+            <div class="strip" id="ctx-strip"></div>
+            <div class="ctx-text" id="ctx-text"><b>Context vector</b>: the encoder's final hidden state h₄, handed to the decoder as its starting state.</div>
+          </div>
+          <div class="lane-label dec-t">Decoder · writes the target</div>
+          <div class="lane dec-lane" id="dec-lane" style="grid-template-columns: repeat(5, minmax(96px, 1fr));"></div>
+        </div>
+      </div>
+      <p class="caption" id="m-caption" aria-live="polite"></p>
+      <div class="legend">
+        <span><i class="sw" style="background:var(--enc)"></i>encoder hidden state hₜ</span>
+        <span><i class="sw" style="background:var(--ctx)"></i>context vector (= h₄)</span>
+        <span><i class="sw" style="background:var(--dec)"></i>decoder hidden state sₜ + softmax over target vocab</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. TEACHER FORCING -->
+  <section class="stack" id="teacher">
+    <div class="stack prose">
+      <span class="eyebrow">Training vs. inference</span>
+      <h2>Teacher forcing and exposure bias</h2>
+      <p>What should the decoder get as input at step <i>t</i>? During training we know the right answer, so we can feed it the <b>true</b> previous token. At inference there is no answer key, so it has to eat its <b>own</b> previous prediction. Below, the model makes one mistake at step 2. Toggle the mode and see what happens next.</p>
+    </div>
+    <div class="panel">
+      <div class="controls" role="group" aria-label="Decoding mode">
+        <button type="button" id="tf-train" aria-pressed="true">Training (teacher forcing)</button>
+        <button type="button" id="tf-infer" aria-pressed="false">Inference (own predictions)</button>
+      </div>
+      <div class="scroll"><div class="tf-grid" id="tf-grid"></div></div>
+      <p class="tf-note" id="tf-note" aria-live="polite"></p>
+    </div>
+    <p class="prose fine">In the lesson's training loop, <code>teacher_forcing_ratio</code> is the probability of feeding the true token at each step. Start at 1.0, then anneal toward ~0.5 so the model practices recovering from its own mistakes. That trick is called <b>scheduled sampling</b>.</p>
+  </section>
+
+  <!-- 3. BOTTLENECK -->
+  <section class="stack" id="bottleneck">
+    <div class="stack prose">
+      <span class="eyebrow">The failure that matters</span>
+      <h2>The bottleneck: every sentence gets the same 8 numbers</h2>
+      <p>The toy test from the lesson: train the model to <b>copy</b> its input. That's the easiest task possible, since no translation is needed. Then make the input longer. The context vector never gets bigger.</p>
+    </div>
+    <div class="panel">
+      <div class="bn">
+        <div class="funnel">
+          <label for="bn-len" class="eyebrow">Sequence length</label>
+          <input type="range" id="bn-len" min="0" max="3" step="1" value="0" aria-describedby="bn-desc">
+          <div class="range-labels"><span>5</span><span>10</span><span>20</span><span>40</span></div>
+          <div class="dots" id="bn-dots" aria-hidden="true"></div>
+          <div class="squeeze">
+            <span>↓ all of it into</span>
+            <div class="strip" id="bn-strip"></div>
+            <span>8 numbers</span>
+          </div>
+          <div class="bigstat" id="bn-acc">98%<small>copy accuracy</small></div>
+          <p class="fine" id="bn-desc">The dots fade because an RNN's final state is dominated by recent tokens. Early tokens get overwritten step after step (fade is illustrative).</p>
+        </div>
+        <div class="stack">
+          <div class="scroll">
+            <svg id="bn-chart" viewBox="0 0 560 270" width="100%" role="img" aria-label="Copy accuracy falls from 98% at length 5 to 23% at length 40"></svg>
+          </div>
+          <p class="fine">Numbers from the lesson's copy-task experiment (GRU seq2seq). The information exists at every encoder step. The decoder just only ever sees the last one.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. BEAM SEARCH -->
+  <section class="stack" id="beam">
+    <div class="stack prose">
+      <span class="eyebrow">Picking tokens at inference</span>
+      <h2>Greedy vs. beam search</h2>
+      <p>The decoder outputs a probability for every word at each step. <b>Greedy</b> takes the top word and can never take it back. <b>Beam search</b> keeps the best <i>k</i> partial sentences alive and scores the whole path (multiply the probabilities). The probabilities here are made up to show the effect.</p>
+    </div>
+    <div class="panel">
+      <div class="controls" role="group" aria-label="Decoding strategy">
+        <button type="button" id="b-greedy" aria-pressed="true">Greedy</button>
+        <button type="button" id="b-beam" aria-pressed="false">Beam search, k = 2</button>
+      </div>
+      <div class="scroll"><div class="beam-wrap"><svg id="beam-svg" viewBox="0 0 620 290" width="100%" role="img" aria-label="Decoding tree for the first two tokens"></svg></div></div>
+      <p id="beam-note" aria-live="polite"></p>
+    </div>
+    <p class="prose fine">Beam width 3–5 is standard. It's the same idea as <code>model.generate(num_beams=4)</code> in Hugging Face, and it's still used by modern transformer encoder-decoders like BART and T5.</p>
+  </section>
+
+  <!-- 5. SHAPES -->
+  <section class="stack" id="shapes">
+    <div class="stack prose">
+      <span class="eyebrow">From picture to PyTorch</span>
+      <h2>The tensor shapes</h2>
+      <p>B = batch, T = source length, E = embedding size, H = hidden size, V = target vocabulary size. The decoder runs <b>one step at a time</b> inside a Python loop, so its time dimension is always 1.</p>
+    </div>
+    <div class="scroll">
+      <table class="shapes">
+        <thead><tr><th>Where</th><th>Tensor</th><th>Shape</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td class="enc-t">Encoder</td><td class="mono">src</td><td class="mono">[B, T]</td><td>Token ids of the source sentence</td></tr>
+          <tr><td class="enc-t">Encoder</td><td class="mono">embed(src)</td><td class="mono">[B, T, E]</td><td>One vector per token</td></tr>
+          <tr><td class="enc-t">Encoder</td><td class="mono">outputs</td><td class="mono">[B, T, H]</td><td>h₁…h_T, one per position. <b>Ignored</b> by plain seq2seq (attention will use them).</td></tr>
+          <tr><td class="ctx-t">Handoff</td><td class="mono">hidden</td><td class="mono">[1, B, H]</td><td>Final state h_T = the context vector. Becomes the decoder's first hidden state.</td></tr>
+          <tr><td class="dec-t">Decoder</td><td class="mono">token</td><td class="mono">[B, 1]</td><td>Previous token (&lt;BOS&gt; at first)</td></tr>
+          <tr><td class="dec-t">Decoder</td><td class="mono">out</td><td class="mono">[B, 1, H]</td><td>New hidden state sₜ</td></tr>
+          <tr><td class="dec-t">Decoder</td><td class="mono">logits</td><td class="mono">[B, 1, V]</td><td>Score for every target word. Cross-entropy per step, summed over the sentence.</td></tr>
+        </tbody>
+      </table>
+    </div>
+<pre><span class="e">_, hidden = encoder(src)</span>                  <span class="c"># keep only the last state → context vector</span>
+input_token = &lt;BOS&gt;
+<span class="k">for</span> t <span class="k">in</span> range(tgt_len):
+    logits, hidden = decoder(input_token, hidden)
+    loss += CrossEntropy(logits, tgt[:, t])  <span class="c"># ignore_index=0 skips padding</span>
+    <span class="k">if</span> random() &lt; teacher_forcing_ratio:
+        input_token = tgt[:, t]              <span class="c"># teacher forcing: true token</span>
+    <span class="k">else</span>:
+        input_token = logits.argmax(-1)      <span class="c"># own prediction</span>
+loss.backward()                              <span class="c"># backprop through time, through BOTH RNNs</span></pre>
+  </section>
+
+  <!-- 6. ATTENTION PREVIEW -->
+  <section class="stack" id="next">
+    <div class="stack prose">
+      <span class="eyebrow">Why this leads to attention</span>
+      <h2>The fix: let the decoder look back</h2>
+      <p>The encoder already computes a hidden state for every source word. Plain seq2seq throws all of them away except the last. Attention keeps them all and lets each decoder step choose which ones to read.</p>
+    </div>
+    <div class="compare">
+      <figure>
+        <svg viewBox="0 0 300 170" width="100%" role="img" aria-label="Seq2seq: only h4 connects to the decoder">
+          <g id="cmp-a"></g>
+        </svg>
+        <figcaption><b>Seq2seq (this lesson).</b> One line from h₄. To say "black", the decoder has to hope "noir" survived inside that one vector.</figcaption>
+      </figure>
+      <figure>
+        <svg viewBox="0 0 300 170" width="100%" role="img" aria-label="Attention: every encoder state connects to the decoder step">
+          <g id="cmp-b"></g>
+        </svg>
+        <figcaption><b>Attention (Lesson 10).</b> When writing "black", the decoder can look straight at h₃ ("noir"). Word reordering gets computed instead of memorized.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- TERMS -->
+  <section class="stack">
+    <span class="eyebrow">Key terms</span>
+    <dl class="terms">
+      <div><dt class="enc-t">Encoder</dt><dd>RNN that reads the source. Produces per-step states and a final context vector.</dd></div>
+      <div><dt class="dec-t">Decoder</dt><dd>RNN started from the context vector. Generates target tokens one at a time until &lt;EOS&gt;.</dd></div>
+      <div><dt class="ctx-t">Context vector</dt><dd>The encoder's final hidden state. Fixed size, whatever the input length. The bottleneck.</dd></div>
+      <div><dt>Teacher forcing</dt><dd>Feeding the true previous token during training. Stabilizes learning.</dd></div>
+      <div><dt>Exposure bias</dt><dd>The model never practiced recovering from its own mistakes, so errors snowball at inference.</dd></div>
+      <div><dt>Beam search</dt><dd>Keep the top-k partial sequences instead of committing greedily to one token.</dd></div>
+    </dl>
+  </section>
+
+  <footer>Visual companion to <span class="mono">phases/05-nlp-foundations-to-advanced/09-sequence-to-sequence</span> in AI Engineering from Scratch. Based on Sutskever, Vinyals &amp; Le (2014). Hidden-state values are illustrative.</footer>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const H = 8;
+
+  // ---------- deterministic illustrative hidden states ----------
+  function vec(seed, t) {
+    const v = [];
+    for (let i = 0; i < H; i++) {
+      v.push(Math.tanh(Math.sin(seed * 1.3 + t * 1.7 + i * 0.9) * 1.4 + Math.cos(i * (t + 1) * 0.55 + seed) * 0.5));
+    }
+    return v;
+  }
+  const encH = [1, 2, 3, 4].map((t) => vec(1, t));
+  const decS = [1, 2, 3, 4, 5].map((t) => vec(7, t));
+
+  function strip(values, colorVar, lit) {
+    const s = document.createElement("div");
+    s.className = "strip";
+    for (let i = 0; i < H; i++) {
+      const c = document.createElement("div");
+      c.className = "cell";
+      if (values) {
+        const v = values[i];
+        c.style.background = v >= 0 ? `var(${colorVar})` : "var(--muted)";
+        c.style.opacity = (0.18 + 0.82 * Math.abs(v)).toFixed(2);
+      }
+      s.appendChild(c);
+    }
+    return s;
+  }
+  function fillStrip(el, values, colorVar) {
+    el.innerHTML = "";
+    const s = strip(values, colorVar);
+    [...s.children].forEach((c) => el.appendChild(c));
+  }
+
+  // ---------- 1. machine ----------
+  const src = ["le", "chat", "noir", "dort"];
+  const dec = [
+    { input: "<BOS>", probs: [["the", 0.72], ["a", 0.18], ["black", 0.05]] },
+    { input: "the", probs: [["black", 0.61], ["cat", 0.27], ["dark", 0.06]] },
+    { input: "black", probs: [["cat", 0.83], ["dog", 0.07], ["night", 0.04]] },
+    { input: "cat", probs: [["sleeps", 0.77], ["sleep", 0.12], ["is", 0.06]] },
+    { input: "sleeps", probs: [["<EOS>", 0.91], [".", 0.05], ["now", 0.02]] },
+  ];
+  const captions = [
+    ["", "Press <b>Next</b>. The encoder will read <span class='mono'>le chat noir dort</span> one token at a time, left to right."],
+    ["enc", "<b class='enc-t'>Encoder step 1</b> reads <span class='mono'>le</span>: embedding → GRU. h₁ is the network's running summary of everything it has read so far (just one word)."],
+    ["enc", "<b class='enc-t'>Step 2</b> reads <span class='mono'>chat</span>. h₂ = GRU(embed('chat'), h₁). It's the same GRU weights at every step. Only the hidden state carries memory forward."],
+    ["enc", "<b class='enc-t'>Step 3</b> reads <span class='mono'>noir</span>. French puts the adjective <i>after</i> the noun. English will need it <i>before</i>, so this order has to be remembered somewhere."],
+    ["enc", "<b class='enc-t'>Step 4</b> reads <span class='mono'>dort</span>. h₄ is the final hidden state. In plain seq2seq, h₁–h₃ are now thrown away."],
+    ["ctx", "<b class='ctx-t'>The handoff.</b> h₄ becomes the <b>context vector</b> and initializes the decoder. Everything about the source (words, order, meaning) must fit in these fixed 8 numbers."],
+    ["dec", "<b class='dec-t'>Decoder step 1.</b> Input <span class='mono'>&lt;BOS&gt;</span> (\"begin\"), state = context vector. A linear layer + softmax scores every English word. Greedy takes the top one: <span class='mono'>the</span> (0.72)."],
+    ["dec", "<b class='dec-t'>Step 2.</b> Input is its own previous output, <span class='mono'>the</span>. It predicts <span class='mono'>black</span>. It can't look back at <span class='mono'>noir</span>, so the reordering had to be packed into the context vector."],
+    ["dec", "<b class='dec-t'>Step 3.</b> Input <span class='mono'>black</span> → predicts <span class='mono'>cat</span> (0.83). Each output is fed back as the next input. This is autoregressive generation, the same loop LLMs use today."],
+    ["dec", "<b class='dec-t'>Step 4.</b> Input <span class='mono'>cat</span> → <span class='mono'>sleeps</span>."],
+    ["dec", "<b class='dec-t'>Step 5.</b> The model emits <span class='mono'>&lt;EOS&gt;</span>, so it stops. Output: <b>the black cat sleeps</b>. The decoder chooses its own length, and output length doesn't have to match input length."],
+  ];
+  const MAX = captions.length - 1;
+  let step = 0, timer = null;
+
+  const encLane = $("enc-lane"), decLane = $("dec-lane");
+  const encCols = src.map((w, i) => {
+    const col = document.createElement("div");
+    col.className = "col";
+    col.innerHTML = `<span class="hlabel">h${"₁₂₃₄"[i]}</span>`;
+    const s = strip(null); s.dataset.role = "h";
+    col.appendChild(s);
+    col.insertAdjacentHTML("beforeend", `<div class="box">GRU</div><span class="chip enc">${w}</span>`);
+    encLane.appendChild(col);
+    return col;
+  });
+  const decCols = dec.map((d, i) => {
+    const col = document.createElement("div");
+    col.className = "col";
+    const out = document.createElement("div"); out.className = "out";
+    d.probs.forEach(([w, p], k) => {
+      out.insertAdjacentHTML("beforeend",
+        `<div class="prob${k === 0 ? " win" : ""}"><span>${w.replace("<", "&lt;").replace(">", "&gt;")}</span><span class="bar" style="width:${Math.round(p * 100)}%"></span></div>`);
+    });
+    col.appendChild(out);
+    col.insertAdjacentHTML("beforeend", `<span class="hlabel">s${"₁₂₃₄₅"[i]}</span>`);
+    const s = strip(null); s.dataset.role = "h";
+    col.appendChild(s);
+    const fb = i < dec.length - 1 ? "↻ fed back" : "";
+    col.insertAdjacentHTML("beforeend", `<div class="box">GRU</div><span class="chip dec">${d.input.replace("<", "&lt;").replace(">", "&gt;")}</span><span class="feedback">${i > 0 ? "prev. output" : ""}</span>`);
+    decLane.appendChild(col);
+    return col;
+  });
+  const ctxRow = $("ctx-row"), ctxStrip = $("ctx-strip");
+
+  function renderMachine() {
+    encCols.forEach((col, i) => {
+      const t = i + 1;
+      col.classList.toggle("future", step < t);
+      col.classList.toggle("active", step === t);
+      fillStrip(col.querySelector("[data-role=h]"), step >= t ? encH[i] : null, "--enc");
+    });
+    const ctxOn = step >= 5;
+    ctxRow.classList.toggle("lit", ctxOn);
+    fillStrip(ctxStrip, ctxOn ? encH[3] : null, "--ctx");
+    decCols.forEach((col, i) => {
+      const t = i + 6;
+      col.classList.toggle("future", step < t);
+      col.classList.toggle("active", step === t);
+      fillStrip(col.querySelector("[data-role=h]"), step >= t ? decS[i] : null, "--dec");
+    });
+    const [kind, text] = captions[step];
+    const cap = $("m-caption");
+    cap.className = "caption " + kind;
+    cap.innerHTML = text;
+    $("m-count").textContent = `${step} / ${MAX}`;
+    $("m-prev").disabled = step === 0;
+    $("m-next").disabled = step === MAX;
+  }
+  function stop() { clearInterval(timer); timer = null; $("m-play").textContent = "Play"; }
+  $("m-next").addEventListener("click", () => { stop(); if (step < MAX) { step++; renderMachine(); } });
+  $("m-prev").addEventListener("click", () => { stop(); if (step > 0) { step--; renderMachine(); } });
+  $("m-reset").addEventListener("click", () => { stop(); step = 0; renderMachine(); });
+  $("m-play").addEventListener("click", () => {
+    if (timer) { stop(); return; }
+    if (step === MAX) step = 0;
+    $("m-play").textContent = "Pause";
+    renderMachine();
+    timer = setInterval(() => {
+      if (step >= MAX) { stop(); return; }
+      step++; renderMachine();
+    }, 1800);
+  });
+  renderMachine();
+
+  // ---------- 2. teacher forcing ----------
+  const esc = (s) => s.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const target = ["the", "black", "cat", "sleeps", "<EOS>"];
+  const modes = {
+    train: {
+      inputs: [["<BOS>", "truth"], ["the", "truth"], ["black", "truth"], ["cat", "truth"], ["sleeps", "truth"]],
+      preds: [["the", "ok"], ["cat", "wrong"], ["cat", "ok"], ["sleeps", "ok"], ["<EOS>", "ok"]],
+      note: "<b>Training.</b> Step 2 guessed <span class='mono'>cat</span> instead of <span class='mono'>black</span>, and the loss is high there. But step 3 still gets the <b>true</b> token <span class='mono'>black</span> as input, so steps 3–5 stay on track and each step's gradient teaches something useful. Without this, one early mistake would poison every later step and training would barely move.",
+      out: "",
+    },
+    infer: {
+      inputs: [["<BOS>", "truth"], ["the", "own"], ["cat", "own"], ["sleeps", "own"], ["<EOS>", "ghost"]],
+      preds: [["the", "ok"], ["cat", "wrong"], ["sleeps", "wrong"], ["<EOS>", "wrong"], ["—", "ghost"]],
+      note: "<b>Inference.</b> No answer key. The mistake <span class='mono'>cat</span> is fed back as the next input, and the model has never trained on the prefix <span class='mono'>the cat</span> for this sentence. It continues from there, and <span class='mono'>black</span> is lost for good. Output: <b class='tf-out'>the cat sleeps</b>. This train/test gap is <b>exposure bias</b>.",
+      out: "",
+    },
+  };
+  function renderTF(mode) {
+    const m = modes[mode];
+    const g = $("tf-grid");
+    let html = `<span class="rowlabel">step</span>` + [1, 2, 3, 4, 5].map((n) => `<span class="rowlabel" style="text-align:center">${n}</span>`).join("");
+    html += `<span class="rowlabel">decoder input</span>` + m.inputs.map(([w, c]) => `<span class="tok ${c}">${esc(w)}</span>`).join("");
+    html += `<span class="rowlabel">prediction</span>` + m.preds.map(([w, c]) => `<span class="tok ${c}">${esc(w)}</span>`).join("");
+    html += `<span class="rowlabel">target</span>` + target.map((w) => `<span class="tok target">${esc(w)}</span>`).join("");
+    g.innerHTML = html;
+    $("tf-note").innerHTML = m.note;
+    $("tf-train").setAttribute("aria-pressed", mode === "train");
+    $("tf-infer").setAttribute("aria-pressed", mode === "infer");
+  }
+  $("tf-train").addEventListener("click", () => renderTF("train"));
+  $("tf-infer").addEventListener("click", () => renderTF("infer"));
+  renderTF("train");
+
+  // ---------- 3. bottleneck ----------
+  const lens = [5, 10, 20, 40], accs = [98, 91, 62, 23];
+  const svgNS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs, parent, text) {
+    const e = document.createElementNS(svgNS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (text != null) e.textContent = text;
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  const chart = $("bn-chart");
+  const m = { l: 52, r: 24, t: 20, b: 46 }, W = 560, Hc = 270;
+  const x = (v) => m.l + (v / 40) * (W - m.l - m.r);
+  const y = (p) => m.t + (1 - p / 100) * (Hc - m.t - m.b);
+  [0, 25, 50, 75, 100].forEach((p) => {
+    el("line", { x1: m.l, x2: W - m.r, y1: y(p), y2: y(p), stroke: "var(--rule)", "stroke-width": 1 }, chart);
+    el("text", { x: m.l - 8, y: y(p) + 4, "text-anchor": "end", "font-size": 11, fill: "var(--muted)" }, chart, p + "%");
+  });
+  [0, 5, 10, 20, 30, 40].forEach((v) => {
+    el("text", { x: x(v), y: Hc - m.b + 18, "text-anchor": "middle", "font-size": 11, fill: "var(--muted)" }, chart, v);
+  });
+  el("text", { x: (m.l + W - m.r) / 2, y: Hc - 8, "text-anchor": "middle", "font-size": 11, fill: "var(--muted)" }, chart, "sequence length (tokens)");
+  const pts = lens.map((l, i) => `${x(l)},${y(accs[i])}`).join(" ");
+  el("polygon", { points: `${x(5)},${y(0)} ${pts} ${x(40)},${y(0)}`, fill: "var(--enc)", opacity: 0.1 }, chart);
+  el("polyline", { points: pts, fill: "none", stroke: "var(--enc)", "stroke-width": 2.5 }, chart);
+  const marks = lens.map((l, i) => {
+    const g = el("g", {}, chart);
+    const c = el("circle", { cx: x(l), cy: y(accs[i]), r: 5, fill: "var(--surface)", stroke: "var(--enc)", "stroke-width": 2 }, g);
+    const t = el("text", { x: x(l) + (i === 3 ? -10 : 10), y: y(accs[i]) - 10, "text-anchor": i === 3 ? "end" : "start", "font-size": 12, fill: "var(--ink)" }, g, accs[i] + "%");
+    return { c, t };
+  });
+
+  const bnStrip = $("bn-strip");
+  fillStrip(bnStrip, [1, 1, 1, 1, 1, 1, 1, 1], "--ctx");
+  function renderBN() {
+    const i = +$("bn-len").value;
+    const n = lens[i];
+    const dots = $("bn-dots");
+    dots.innerHTML = "";
+    for (let k = 0; k < n; k++) {
+      const d = document.createElement("span");
+      d.className = "dot";
+      // later tokens are more present in the final state
+      const recency = (k + 1) / n;
+      d.style.opacity = (0.12 + 0.88 * Math.pow(recency, n > 10 ? 2.2 : 1.2)).toFixed(2);
+      dots.appendChild(d);
+    }
+    $("bn-acc").innerHTML = `${accs[i]}%<small>copy accuracy at length ${n}</small>`;
+    marks.forEach((mk, k) => {
+      mk.c.setAttribute("r", k === i ? 8 : 5);
+      mk.c.setAttribute("fill", k === i ? "var(--enc)" : "var(--surface)");
+      mk.t.setAttribute("font-weight", k === i ? 700 : 400);
+    });
+  }
+  $("bn-len").addEventListener("input", renderBN);
+  renderBN();
+
+  // ---------- 4. beam search ----------
+  const bsvg = $("beam-svg");
+  const nodes = {
+    root: { x: 50, y: 145, label: "<BOS>" },
+    a: { x: 230, y: 75, label: "a", p: 0.55, parent: "root" },
+    the: { x: 230, y: 215, label: "the", p: 0.45, parent: "root" },
+    a_cat: { x: 410, y: 25, label: "cat", p: 0.40, parent: "a" },
+    a_black: { x: 410, y: 75, label: "black", p: 0.35, parent: "a" },
+    a_dark: { x: 410, y: 125, label: "dark", p: 0.25, parent: "a" },
+    the_black: { x: 410, y: 190, label: "black", p: 0.80, parent: "the" },
+    the_cat: { x: 410, y: 250, label: "cat", p: 0.20, parent: "the" },
+  };
+  const joint = (k) => { let n = nodes[k], v = 1; while (n.parent) { v *= n.p; n = nodes[n.parent]; } return v; };
+  const leaves = ["a_cat", "a_black", "a_dark", "the_black", "the_cat"];
+  const strategies = {
+    greedy: {
+      kept: new Set(["root", "a", "a_cat"]),
+      seen: new Set(["root", "a", "the", "a_cat", "a_black", "a_dark"]),
+      winner: "a_cat",
+      note: "<b>Greedy</b> takes <span class='mono'>a</span> (0.55 beats 0.45), then the best word after it, <span class='mono'>cat</span>. Path score 0.55 × 0.40 = <b>0.22</b>. It never looks at <span class='mono'>the → black</span>, which would score 0.36. Result: <span class='mono'>a cat …</span>, and \"black\" is lost again.",
+    },
+    beam: {
+      kept: new Set(["root", "a", "the", "a_cat", "the_black"]),
+      seen: new Set(Object.keys(nodes)),
+      winner: "the_black",
+      note: "<b>Beam search (k = 2)</b> keeps both <span class='mono'>a</span> and <span class='mono'>the</span> after step 1. At step 2 it scores all 5 paths and keeps the best 2: <span class='mono'>the black</span> (0.45 × 0.80 = <b>0.36</b>) and <span class='mono'>a cat</span> (0.22). The weaker first word led to the better sentence.",
+    },
+  };
+  function renderBeam(kind) {
+    const s = strategies[kind];
+    bsvg.innerHTML = "";
+    el("text", { x: 50, y: 285, "text-anchor": "middle", "font-size": 11, fill: "var(--muted)" }, bsvg, "start");
+    el("text", { x: 230, y: 285, "text-anchor": "middle", "font-size": 11, fill: "var(--muted)" }, bsvg, "step 1");
+    el("text", { x: 410, y: 285, "text-anchor": "middle", "font-size": 11, fill: "var(--muted)" }, bsvg, "step 2");
+    el("text", { x: 540, y: 285, "text-anchor": "middle", "font-size": 11, fill: "var(--muted)" }, bsvg, "path score");
+    for (const k in nodes) {
+      const n = nodes[k];
+      if (!n.parent) continue;
+      const p = nodes[n.parent];
+      const on = s.kept.has(k), seen = s.seen.has(k);
+      const win = on && (k === s.winner || s.winner.startsWith(k + "_"));
+      el("line", { x1: p.x + 30, y1: p.y, x2: n.x - 30, y2: n.y, stroke: win ? "var(--dec)" : on ? "var(--muted)" : "var(--rule)", "stroke-width": win ? 3 : 1.5, "stroke-dasharray": seen ? "" : "4 4", opacity: seen ? 1 : 0.6 }, bsvg);
+      el("text", { x: (p.x + n.x) / 2, y: (p.y + n.y) / 2 - 6, "text-anchor": "middle", "font-size": 11, fill: seen ? "var(--muted)" : "var(--rule)" }, bsvg, n.p.toFixed(2));
+    }
+    for (const k in nodes) {
+      const n = nodes[k];
+      const on = s.kept.has(k), seen = s.seen.has(k);
+      const win = on && (k === "root" || k === s.winner || s.winner.startsWith(k + "_"));
+      el("rect", { x: n.x - 30, y: n.y - 14, width: 60, height: 28, rx: 6, fill: win ? "var(--dec)" : on ? "var(--dec-soft)" : "var(--surface-2)", stroke: seen ? (on ? "var(--dec)" : "var(--rule)") : "var(--rule)", "stroke-width": 1.5, opacity: seen ? 1 : 0.5 }, bsvg);
+      el("text", { x: n.x, y: n.y + 4, "text-anchor": "middle", "font-size": 12, fill: win ? "#fff" : seen ? "var(--ink)" : "var(--muted)", "font-weight": 500 }, bsvg, n.label);
+    }
+    leaves.forEach((k) => {
+      const n = nodes[k], seen = s.seen.has(k), on = s.kept.has(k);
+      const v = joint(k);
+      el("text", { x: 540, y: n.y + 4, "text-anchor": "middle", "font-size": 12, fill: k === s.winner ? "var(--dec)" : seen ? "var(--ink)" : "var(--rule)", "font-weight": k === s.winner ? 700 : 400 }, bsvg, seen ? v.toFixed(2) + (k === s.winner ? "  ✓" : on ? "  kept" : "") : "not explored");
+    });
+    $("beam-note").innerHTML = s.note;
+    $("b-greedy").setAttribute("aria-pressed", kind === "greedy");
+    $("b-beam").setAttribute("aria-pressed", kind === "beam");
+  }
+  $("b-greedy").addEventListener("click", () => renderBeam("greedy"));
+  $("b-beam").addEventListener("click", () => renderBeam("beam"));
+  renderBeam("greedy");
+
+  // ---------- 6. attention preview ----------
+  function compare(gId, all) {
+    const g = $(gId);
+    const words = ["le", "chat", "noir", "dort"];
+    const xs = [40, 110, 180, 250];
+    const dx = 150, dy = 30;
+    words.forEach((w, i) => {
+      const strong = all ? i === 2 : i === 3;
+      if (all || i === 3) {
+        el("line", { x1: xs[i], y1: 108, x2: dx, y2: dy + 16, stroke: all ? "var(--dec)" : "var(--ctx)", "stroke-width": strong ? 3 : 1.2, opacity: strong ? 1 : 0.45 }, g);
+      }
+      el("rect", { x: xs[i] - 26, y: 108, width: 52, height: 24, rx: 5, fill: "var(--enc)", opacity: all || i === 3 ? 1 : 0.35 }, g);
+      el("text", { x: xs[i], y: 124, "text-anchor": "middle", "font-size": 11, fill: "#fff" }, g, "h" + "₁₂₃₄"[i]);
+      el("text", { x: xs[i], y: 152, "text-anchor": "middle", "font-size": 12, fill: "var(--muted)" }, g, words[i]);
+    });
+    el("rect", { x: dx - 44, y: dy - 12, width: 88, height: 28, rx: 6, fill: "var(--dec)" }, g);
+    el("text", { x: dx, y: dy + 6, "text-anchor": "middle", "font-size": 12, fill: "#fff" }, g, 'write "black"');
+  }
+  compare("cmp-a", false);
+  compare("cmp-b", true);
+})();
+</script>
+</body>
+</html>
